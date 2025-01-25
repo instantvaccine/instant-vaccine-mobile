@@ -26,6 +26,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.aallam.openai.api.BetaOpenAI
+import com.aallam.openai.api.chat.ChatCompletion
+import com.aallam.openai.api.chat.ChatCompletionRequest
+import com.aallam.openai.api.chat.ChatMessage
+import com.aallam.openai.api.chat.ChatRole
+import com.aallam.openai.api.http.Timeout
+import com.aallam.openai.client.OpenAI
 import com.example.instant_vaccine_mobile.ui.theme.InstantvaccinemobileTheme
 import com.itextpdf.forms.PdfAcroForm
 import com.itextpdf.kernel.pdf.PdfDocument
@@ -34,10 +41,17 @@ import com.itextpdf.kernel.pdf.PdfWriter
 import com.itextpdf.kernel.pdf.canvas.PdfCanvas
 import com.itextpdf.kernel.font.PdfFontFactory
 import android.content.Context
+import android.text.format.DateFormat
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import androidx.compose.ui.platform.LocalContext
+import com.aallam.openai.api.model.ModelId
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlin.random.Random
+import kotlin.time.Duration.Companion.seconds
 
 private const val TAG = "MainActivity"
 
@@ -63,7 +77,16 @@ fun VaccinationForm(modifier: Modifier = Modifier) {
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
     var birthDate by remember { mutableStateOf("") }
+    var aiRecommendation by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    val openAI = remember {
+        OpenAI(
+            token = "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",
+            timeout = Timeout(socket = 60.seconds)
+        )
+    }
 
     Column(
         modifier = modifier
@@ -112,6 +135,67 @@ fun VaccinationForm(modifier: Modifier = Modifier) {
             singleLine = true,
             placeholder = { Text("mm/dd/yyyy") }
         )
+
+        fun getVaccineRecommendation() {
+            isLoading = true
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val chatCompletionRequest = ChatCompletionRequest(
+                        messages = listOf(
+                            ChatMessage(
+                                role = ChatRole.System,
+                                content = "You are a helpful medical assistant providing vaccine recommendations."
+                            ),
+                            ChatMessage(
+                                role = ChatRole.User,
+                                content = "Please provide a brief vaccination recommendation for a person with the following details: Name: $firstName $lastName, Birth Date: $birthDate"
+                            )
+                        ),
+                        model = ModelId("gpt-4"),
+                        temperature = 0.7,
+                        topP = 1.0,
+                        n = 1,
+                        maxTokens = 1000,
+                        presencePenalty = 0.0,
+                        frequencyPenalty = 0.0
+                    )
+                    
+                    val completion: ChatCompletion = openAI.chatCompletion(chatCompletionRequest)
+                    val response = completion.choices.first().message.content
+                    
+                    aiRecommendation = response ?: "Unable to generate recommendation"
+                    isLoading = false
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error getting AI recommendation: ${e.message}", e)
+                    aiRecommendation = "Error: Unable to get recommendation"
+                    isLoading = false
+                }
+            }
+        }
+
+        if (isLoading) {
+            Text("Getting AI recommendation...")
+        }
+        
+        if (aiRecommendation.isNotEmpty()) {
+            Text(
+                text = aiRecommendation,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            )
+        }
+
+        Button(
+            onClick = { getVaccineRecommendation() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            enabled = firstName.isNotEmpty() && birthDate.isNotEmpty()
+        ) {
+            Text("Get AI Recommendation")
+        }
 
         Button(
             onClick = {
@@ -166,17 +250,17 @@ private fun fillPdfTemplate(
             val page = pdfDoc.getFirstPage()
             val canvas = PdfCanvas(page)
             
-            val random = kotlin.random.Random
+            val random = Random
             val now = System.currentTimeMillis()
             val oneYearAgo = now - (365L * 24 * 60 * 60 * 1000)
             
             // Generate first dose date between 1 year ago and 6 months ago
             val firstDoseTime = random.nextLong(oneYearAgo, now - (180L * 24 * 60 * 60 * 1000))
-            val firstDoseDate = android.text.format.DateFormat.format("MMMM d, yyyy", firstDoseTime)
+            val firstDoseDate = DateFormat.format("MMMM d, yyyy", firstDoseTime)
             
             // Generate second dose date between first dose and now
             val secondDoseTime = random.nextLong(firstDoseTime + (21L * 24 * 60 * 60 * 1000), now)
-            val secondDoseDate = android.text.format.DateFormat.format("MMMM d, yyyy", secondDoseTime)
+            val secondDoseDate = DateFormat.format("MMMM d, yyyy", secondDoseTime)
             
             canvas.beginText()
                 .setFontAndSize(PdfFontFactory.createFont(), 8f)

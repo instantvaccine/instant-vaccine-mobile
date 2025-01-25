@@ -40,6 +40,9 @@ android {
 }
 
 dependencies {
+    implementation(libs.openai.client)
+    implementation(libs.ktor.client.android)
+
     implementation(libs.itext7.core)
 
     implementation(libs.androidx.core.ktx)
